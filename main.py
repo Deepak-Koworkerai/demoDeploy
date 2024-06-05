@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+ from flask import Flask, request, jsonify, render_template
 import os
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -83,4 +83,4 @@ def prettify_text(text):
     return prettified
 
 if __name__ == '__main__':
-    app.run(debug=False,host='0.0.0.0')
+    app.run(debug=True)
