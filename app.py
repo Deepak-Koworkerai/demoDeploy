@@ -11,6 +11,8 @@ import logging
 import time
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from google.api_core.exceptions import DeadlineExceeded
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 app = Flask(__name__)
 model_name = "BAAI/bge-base-en"
