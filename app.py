@@ -7,17 +7,42 @@ from langchain_community.vectorstores.faiss import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
+import logging
+import time
+from google.api_core.exceptions import DeadlineExceeded
 
 app = Flask(__name__)
 
 def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     chunks = text_splitter.split_text(text)
     return chunks
 
-def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='AIzaSyDZPeekW_g9K57V9P1QOD4zfi1S2_v1ywg')
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+def batch_iterable(iterable, batch_size):
+    l = len(iterable)
+    for ndx in range(0, l, batch_size):
+        yield iterable[ndx:min(ndx + batch_size, l)]
+
+def get_vector_store(text_chunks, batch_size=10):
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='YOUR_API_KEY')
+    
+    all_embeddings = []
+    retries = 3
+
+    for batch in batch_iterable(text_chunks, batch_size):
+        for attempt in range(retries):
+            try:
+                batch_embeddings = embeddings.embed_documents(batch)
+                all_embeddings.extend(batch_embeddings)
+                break
+            except DeadlineExceeded as e:
+                logging.error(f"Attempt {attempt + 1}/{retries} failed with error: {e}")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    raise
+
+    vector_store = FAISS.from_embeddings(all_embeddings, text_chunks)
     vector_store.save_local("faiss_index")
 
 def get_conversational_chain():
@@ -30,13 +55,13 @@ def get_conversational_chain():
     Answer:
     """
 
-    model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key='AIzaSyDZPeekW_g9K57V9P1QOD4zfi1S2_v1ywg')
+    model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key='YOUR_API_KEY')
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
     return chain
 
 def user_input(user_question):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='AIzaSyDZPeekW_g9K57V9P1QOD4zfi1S2_v1ywg')
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='YOUR_API_KEY')
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     docs = new_db.similarity_search(user_question)
     chain = get_conversational_chain()
@@ -52,7 +77,6 @@ def read_text_file(file_path):
 def index():
     return render_template('index.html')
 
-@app.route('/vectorize', methods=['POST'])
 def vectorize():
     text_dir = os.getcwd()
     text_files = [os.path.join(text_dir, f) for f in os.listdir(text_dir) if f.endswith('.txt')]
@@ -70,6 +94,8 @@ def vectorize():
     else:
         return "No text files found in the specified directory."
 
+vectorize()
+
 @app.route('/ask', methods=['POST'])
 def ask():
     user_question = request.form['question']
@@ -83,4 +109,4 @@ def prettify_text(text):
     return prettified
 
 if __name__ == '__main__':
-    app.run(debug=False,host='0.0.0.0')
+    app.run(debug=False, host='0.0.0.0')

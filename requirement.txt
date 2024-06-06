@@ -1,8 +1,0 @@
-flask
-google-generativeai
-python-dotenv
-langchain
-langchain_community
-chromadb
-faiss-cpu
-langchain_google_genai
