@@ -9,7 +9,7 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 import logging
 import time
-from langchain.embeddings import HuggingFaceBgeEmbeddings
+from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from google.api_core.exceptions import DeadlineExceeded
 
 app = Flask(__name__)
@@ -103,6 +103,8 @@ def prettify_text(text):
     prettified = prettified.replace('**', '<b>').replace('*', '<li>')
     prettified = prettified.replace('<b>', '</b>', 1)  # Ensure to close the first bold tag correctly
     return prettified
-
+    
 if __name__ == '__main__':
-    app.run(debug=True)
+    from app import app
+    app.run(debug=False, host='0.0.0.0')
+
