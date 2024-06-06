@@ -9,12 +9,24 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 import logging
 import time
+from langchain.embeddings import HuggingFaceBgeEmbeddings
 from google.api_core.exceptions import DeadlineExceeded
 
 app = Flask(__name__)
+model_name = "BAAI/bge-base-en"
+encode_kwargs = {'normalize_embeddings': True} # set True to compute cosine similarity
+
+model_norm = HuggingFaceBgeEmbeddings(
+    model_name=model_name,
+    model_kwargs={'device': 'cpu'},
+    encode_kwargs=encode_kwargs
+)
+
+embeddings= model_norm
+
 
 def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=300)
     chunks = text_splitter.split_text(text)
     return chunks
 
@@ -24,44 +36,28 @@ def batch_iterable(iterable, batch_size):
         yield iterable[ndx:min(ndx + batch_size, l)]
 
 def get_vector_store(text_chunks, batch_size=10):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='YOUR_API_KEY')
-    
-    all_embeddings = []
-    retries = 3
-
-    for batch in batch_iterable(text_chunks, batch_size):
-        for attempt in range(retries):
-            try:
-                batch_embeddings = embeddings.embed_documents(batch)
-                all_embeddings.extend(batch_embeddings)
-                break
-            except DeadlineExceeded as e:
-                logging.error(f"Attempt {attempt + 1}/{retries} failed with error: {e}")
-                if attempt < retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                else:
-                    raise
-
-    vector_store = FAISS.from_embeddings(all_embeddings, text_chunks)
+    #embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-002", google_api_key='AIzaSyBg9Hq7avlD4iX94pnU9ce6YwT1X5LPeVc')
+    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     vector_store.save_local("faiss_index")
+
 
 def get_conversational_chain():
     prompt_template = """
-    Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
-    provided context just say, "Oh no!, I am not really aware of it, I shall ask him and let you know later!!", don't provide the wrong answer\n\n
+    Answer the question as detailed as possible from the provided context, make sure to provide all the details, 
     Context:\n {context}?\n
     Question: \n{question}\n
-    Note: answer the context relevantly and adjust to the tone and way of the user
+    Note: answer the context relevantly and adjust to the tone and way of the user, and If the question is related to some general topic or a conservational chat, try to answer as human like if the question is "tell me something you know ", "is this right time to talk", try to answer it
+    if the answer is not in provided context and if you think the question is personal or unknown or common just say, "Oh no!, I am not really aware of it, I shall ask him and let you know later!!", don't provide the wrong answer\n\n
     Answer:
     """
 
-    model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key='YOUR_API_KEY')
+    model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.3, google_api_key='AIzaSyBg9Hq7avlD4iX94pnU9ce6YwT1X5LPeVc')
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
     return chain
 
 def user_input(user_question):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key='YOUR_API_KEY')
+    #embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-002", google_api_key='AIzaSyBg9Hq7avlD4iX94pnU9ce6YwT1X5LPeVc')
     new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     docs = new_db.similarity_search(user_question)
     chain = get_conversational_chain()
@@ -109,6 +105,4 @@ def prettify_text(text):
     return prettified
 
 if __name__ == '__main__':
-
-    app.run(debug=False, host='0.0.0.0',port=5000)
-
+    app.run(debug=False, host='0.0.0.0')
